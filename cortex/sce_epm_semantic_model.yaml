@@ -1,0 +1,454 @@
+# =============================================================================
+# Cortex Analyst Semantic Model
+# SCE EPM Contract Intelligence Chatbot
+# =============================================================================
+
+name: sce_epm_contract_model
+description: >
+  Semantic model for SCE EPM (Energy Portfolio Management) contract intelligence.
+  Enables natural-language queries about PPAs, RA contracts, amendments,
+  curtailment terms, capacity, metering configurations, and EANEP/degradation
+  metadata. Pairs with two Cortex Search services for clause-level RAG.
+
+tables:
+  # ---------------------------------------------------------------------------
+  # CONTRACT
+  # ---------------------------------------------------------------------------
+  - name: contracts
+    description: Master PPA / RA / Tolling contract records.
+    base_table:
+      database: SCE_EPM_DB
+      schema: ATOMIC
+      table: CONTRACT
+    primary_key: { columns: [contract_id] }
+
+    dimensions:
+      - name: contract_id
+        description: Unique contract identifier (e.g. CTR-001).
+        expr: contract_id
+        data_type: TEXT
+
+      - name: contract_name
+        synonyms: ["contract", "agreement", "deal"]
+        description: Contract name.
+        expr: contract_name
+        data_type: TEXT
+
+      - name: contract_type
+        synonyms: ["type", "agreement type"]
+        description: PPA, RA, TOLLING, or HYBRID.
+        expr: contract_type
+        data_type: TEXT
+        sample_values: ["PPA", "RA", "TOLLING", "HYBRID"]
+
+      - name: resource_type
+        synonyms: ["technology", "fuel"]
+        description: Generation resource technology.
+        expr: resource_type
+        data_type: TEXT
+        sample_values: ["SOLAR", "WIND", "BATTERY", "HYBRID_SOLAR_BESS", "GAS"]
+
+      - name: status
+        description: Contract lifecycle status.
+        expr: status
+        data_type: TEXT
+        sample_values: ["ACTIVE", "EXPIRED", "TERMINATED", "PROPOSED"]
+
+      - name: counterparty_id
+        description: FK to counterparty.
+        expr: counterparty_id
+        data_type: TEXT
+
+      - name: curtailment_flag
+        synonyms: ["curtailable", "has curtailment"]
+        description: TRUE when contract permits curtailment by SCE.
+        expr: curtailment_flag
+        data_type: BOOLEAN
+
+      - name: curtailment_type
+        synonyms: ["curtailment kind", "curtailment category"]
+        description: Type of curtailment permitted.
+        expr: curtailment_type
+        data_type: TEXT
+        sample_values: ["ECONOMIC", "RELIABILITY", "UNLIMITED_OPERATIONAL", "NONE"]
+
+      - name: payment_meter
+        synonyms: ["settlement meter", "billing meter"]
+        description: Meter used for SCE settlement.
+        expr: payment_meter
+        data_type: TEXT
+        sample_values: ["SCE", "ISO", "THIRD_PARTY"]
+
+      - name: iso_meter_flag
+        synonyms: ["caiso meter", "has iso meter"]
+        description: TRUE if a separate CAISO meter is installed at the POI.
+        expr: iso_meter_flag
+        data_type: BOOLEAN
+
+      - name: delivery_point
+        description: Energy delivery point / interconnection bus.
+        expr: delivery_point
+        data_type: TEXT
+
+      - name: poi_substation
+        synonyms: ["substation", "POI"]
+        description: Point-of-interconnection substation name.
+        expr: poi_substation
+        data_type: TEXT
+
+    time_dimensions:
+      - name: execution_date
+        synonyms: ["signed date", "executed"]
+        description: Contract execution date.
+        expr: execution_date
+        data_type: DATE
+
+      - name: term_start_date
+        synonyms: ["start date", "term start"]
+        description: Effective start of contract term.
+        expr: term_start_date
+        data_type: DATE
+
+      - name: term_end_date
+        synonyms: ["end date", "expiration"]
+        description: Contract term expiration.
+        expr: term_end_date
+        data_type: DATE
+
+    facts:
+      - name: capacity_mw
+        synonyms: ["capacity", "MW", "nameplate", "size"]
+        description: Nameplate capacity in MW.
+        expr: capacity_mw
+        data_type: NUMBER
+
+      - name: curtailment_cap_hrs
+        synonyms: ["curtailment cap", "annual curtailment hours"]
+        description: Annual curtailment cap in hours.
+        expr: curtailment_cap_hrs
+        data_type: NUMBER
+
+      - name: eanep_factor
+        synonyms: ["EANEP", "capacity factor"]
+        description: Expected Annual Net Energy Production factor (fraction).
+        expr: eanep_factor
+        data_type: NUMBER
+
+      - name: degradation_factor
+        synonyms: ["annual degradation", "panel degradation"]
+        description: Annual degradation factor (fraction).
+        expr: degradation_factor
+        data_type: NUMBER
+
+      - name: base_price_usd_mwh
+        synonyms: ["price", "energy price", "$/MWh"]
+        description: Contract energy price in $/MWh.
+        expr: base_price_usd_mwh
+        data_type: NUMBER
+
+    metrics:
+      - name: contract_count
+        description: Count of contracts.
+        expr: COUNT(DISTINCT contracts.contract_id)
+      - name: total_capacity_mw
+        synonyms: ["total MW"]
+        description: Sum of nameplate capacity (MW).
+        expr: SUM(contracts.capacity_mw)
+      - name: active_contracts
+        description: Count of contracts with STATUS = 'ACTIVE'.
+        expr: SUM(CASE WHEN contracts.status = 'ACTIVE' THEN 1 ELSE 0 END)
+      - name: curtailable_count
+        description: Count of contracts with curtailment_flag = TRUE.
+        expr: SUM(CASE WHEN contracts.curtailment_flag THEN 1 ELSE 0 END)
+
+  # ---------------------------------------------------------------------------
+  # COUNTERPARTY
+  # ---------------------------------------------------------------------------
+  - name: counterparties
+    description: Counterparty / supplier master.
+    base_table:
+      database: SCE_EPM_DB
+      schema: ATOMIC
+      table: COUNTERPARTY
+    primary_key: { columns: [counterparty_id] }
+
+    dimensions:
+      - name: counterparty_id
+        description: Counterparty key.
+        expr: counterparty_id
+        data_type: TEXT
+      - name: counterparty_name
+        synonyms: ["supplier", "developer", "seller", "company"]
+        description: Counterparty name.
+        expr: counterparty_name
+        data_type: TEXT
+      - name: counterparty_type
+        description: DEVELOPER / IPP / TRADER / UTILITY.
+        expr: counterparty_type
+        data_type: TEXT
+        sample_values: ["DEVELOPER", "IPP", "TRADER", "UTILITY"]
+      - name: hq_state
+        description: HQ state.
+        expr: hq_state
+        data_type: TEXT
+
+  # ---------------------------------------------------------------------------
+  # AMENDMENT (Q1)
+  # ---------------------------------------------------------------------------
+  - name: amendments
+    description: Contract amendments parsed from PDF filenames.
+    base_table:
+      database: SCE_EPM_DB
+      schema: ATOMIC
+      table: AMENDMENT
+    primary_key: { columns: [amendment_id] }
+
+    dimensions:
+      - name: amendment_id
+        description: Amendment identifier.
+        expr: amendment_id
+        data_type: TEXT
+      - name: contract_id
+        description: Parent contract.
+        expr: contract_id
+        data_type: TEXT
+      - name: amendment_number
+        synonyms: ["sequence"]
+        description: Sequential amendment number (1, 2, 3, ...).
+        expr: amendment_number
+        data_type: NUMBER
+      - name: doc_type
+        synonyms: ["document type", "amendment type"]
+        description: Document type parsed from filename.
+        expr: doc_type
+        data_type: TEXT
+        sample_values: ["AMENDMENT", "RESTATEMENT", "SIDE_LETTER", "NOTICE"]
+      - name: file_name
+        description: Original PDF filename.
+        expr: file_name
+        data_type: TEXT
+      - name: summary
+        synonyms: ["description", "what changed"]
+        description: One-paragraph summary of the amendment changes.
+        expr: summary
+        data_type: TEXT
+      - name: counterparty_name
+        description: Counterparty name parsed from filename.
+        expr: counterparty_name
+        data_type: TEXT
+
+    time_dimensions:
+      - name: execution_date
+        synonyms: ["amendment date", "executed"]
+        description: Date amendment was executed.
+        expr: execution_date
+        data_type: DATE
+
+    facts:
+      - name: page_count
+        description: Page count of the amendment PDF.
+        expr: page_count
+        data_type: NUMBER
+
+    metrics:
+      - name: amendment_count
+        synonyms: ["number of amendments"]
+        description: Count of amendments.
+        expr: COUNT(amendments.amendment_id)
+
+  # ---------------------------------------------------------------------------
+  # METERING_CONFIG (Q6)
+  # ---------------------------------------------------------------------------
+  - name: metering
+    description: Per-contract metering configuration; supports Q6 (paid by SCE meter but ISO meter present).
+    base_table:
+      database: SCE_EPM_DB
+      schema: ATOMIC
+      table: METERING_CONFIG
+    primary_key: { columns: [contract_id] }
+
+    dimensions:
+      - name: contract_id
+        description: Parent contract.
+        expr: contract_id
+        data_type: TEXT
+      - name: payment_meter
+        description: SCE / ISO / THIRD_PARTY.
+        expr: payment_meter
+        data_type: TEXT
+      - name: iso_meter_flag
+        description: TRUE if separate CAISO meter exists.
+        expr: iso_meter_flag
+        data_type: BOOLEAN
+      - name: mismatch_flag
+        synonyms: ["meter mismatch", "metering issue"]
+        description: TRUE when paid by SCE meter but separate ISO meter exists (Q6).
+        expr: mismatch_flag
+        data_type: BOOLEAN
+      - name: sce_meter_id
+        description: SCE meter identifier.
+        expr: sce_meter_id
+        data_type: TEXT
+      - name: iso_meter_id
+        description: CAISO meter identifier.
+        expr: iso_meter_id
+        data_type: TEXT
+      - name: metering_notes
+        description: Free-text metering notes.
+        expr: metering_notes
+        data_type: TEXT
+
+# =============================================================================
+# RELATIONSHIPS
+# =============================================================================
+relationships:
+  - name: contracts_to_counterparties
+    left_table: contracts
+    right_table: counterparties
+    relationship_columns:
+      - { left_column: counterparty_id, right_column: counterparty_id }
+  - name: contracts_to_amendments
+    left_table: contracts
+    right_table: amendments
+    relationship_columns:
+      - { left_column: contract_id, right_column: contract_id }
+  - name: contracts_to_metering
+    left_table: contracts
+    right_table: metering
+    relationship_columns:
+      - { left_column: contract_id, right_column: contract_id }
+
+# =============================================================================
+# VERIFIED QUERIES   (gold-standard SQL for the 6 required questions)
+# =============================================================================
+verified_queries:
+
+  # -------- Q1: amendment count + descriptions ----------------------------
+  - name: q1_amendment_count_for_contract
+    question: "How many amendments does contract CTR-001 have, and what does each one cover?"
+    use_as_onboarding_question: true
+    sql: |
+      SELECT
+        a.amendment_number,
+        a.execution_date,
+        a.doc_type,
+        a.summary,
+        a.file_name
+      FROM __amendments a
+      WHERE a.contract_id = 'CTR-001'
+      ORDER BY a.amendment_number
+
+  - name: q1_amendments_by_contract_summary
+    question: "Show amendment counts and date ranges across all contracts."
+    sql: |
+      SELECT
+        c.contract_id,
+        c.contract_name,
+        COUNT(a.amendment_id)            AS amendment_count,
+        MIN(a.execution_date)            AS first_amendment_date,
+        MAX(a.execution_date)            AS most_recent_amendment_date
+      FROM __contracts c
+      LEFT JOIN __amendments a ON a.contract_id = c.contract_id
+      GROUP BY c.contract_id, c.contract_name
+      ORDER BY amendment_count DESC
+
+  # -------- Q3: curtailment-term filtering --------------------------------
+  - name: q3_contracts_with_economic_curtailment
+    question: "Show me contracts with economic curtailment terms."
+    use_as_onboarding_question: true
+    sql: |
+      SELECT
+        c.contract_id,
+        c.contract_name,
+        cp.counterparty_name AS supplier,
+        c.capacity_mw,
+        c.curtailment_type,
+        c.curtailment_cap_hrs,
+        c.status
+      FROM __contracts c
+      LEFT JOIN __counterparties cp
+        ON cp.counterparty_id = c.counterparty_id
+      WHERE c.curtailment_flag = TRUE
+        AND c.curtailment_type = 'ECONOMIC'
+      ORDER BY c.capacity_mw DESC
+
+  # -------- Q4: capacity threshold ----------------------------------------
+  - name: q4_contracts_over_10_mw
+    question: "Show me contracts with capacity greater than 10 MW."
+    use_as_onboarding_question: true
+    sql: |
+      SELECT
+        c.contract_id,
+        c.contract_name,
+        cp.counterparty_name AS supplier,
+        c.capacity_mw,
+        c.execution_date,
+        c.term_start_date,
+        c.term_end_date,
+        c.status
+      FROM __contracts c
+      LEFT JOIN __counterparties cp
+        ON cp.counterparty_id = c.counterparty_id
+      WHERE c.capacity_mw > 10
+      ORDER BY c.capacity_mw DESC
+
+  # -------- Q6: metering mismatch -----------------------------------------
+  - name: q6_paid_by_sce_meter_with_iso_meter
+    question: "Which contracts are paid by SCE meter but have a separate ISO meter installed?"
+    use_as_onboarding_question: true
+    sql: |
+      SELECT
+        c.contract_id,
+        c.contract_name,
+        cp.counterparty_name AS supplier,
+        c.capacity_mw,
+        m.sce_meter_id,
+        m.iso_meter_id,
+        m.metering_notes
+      FROM __contracts c
+      JOIN __metering m         ON m.contract_id = c.contract_id
+      LEFT JOIN __counterparties cp
+        ON cp.counterparty_id = c.counterparty_id
+      WHERE m.payment_meter = 'SCE'
+        AND m.iso_meter_flag = TRUE
+
+  # -------- Q5 supporting -------------------------------------------------
+  - name: q5_contracts_with_eanep_or_degradation
+    question: "Which contracts have EANEP or degradation factor metadata?"
+    sql: |
+      SELECT
+        c.contract_id,
+        c.contract_name,
+        c.resource_type,
+        c.capacity_mw,
+        c.eanep_factor,
+        c.degradation_factor
+      FROM __contracts c
+      WHERE c.eanep_factor IS NOT NULL
+         OR c.degradation_factor IS NOT NULL
+      ORDER BY c.capacity_mw DESC
+
+# =============================================================================
+# CUSTOM INSTRUCTIONS
+# =============================================================================
+custom_instructions: >
+  This semantic model covers SCE's Energy Portfolio Management (EPM) contract
+  book — Power Purchase Agreements (PPAs), Resource Adequacy (RA) contracts,
+  and Tolling Agreements with renewable / battery / gas counterparties.
+
+  Key business context:
+  - Contracts have STATUS in {ACTIVE, EXPIRED, TERMINATED, PROPOSED}; default
+    questions about "contracts" usually refer to ACTIVE contracts unless the
+    user says otherwise.
+  - CAPACITY_MW is nameplate capacity. "Large" typically means > 10 MW.
+  - CURTAILMENT_FLAG must be TRUE for any curtailment-related filter.
+  - Q6 mismatch pattern: PAYMENT_METER = 'SCE' AND ISO_METER_FLAG = TRUE
+    (use METERING_CONFIG.MISMATCH_FLAG = TRUE as a shortcut).
+  - EANEP = Expected Annual Net Energy Production; DEGRADATION_FACTOR is a
+    yearly fraction applied to EANEP.
+  - For amendment-level questions about *what changed*, the structured SUMMARY
+    field is a good first source; for full clause text, the Cortex Search
+    services (contract_clause_search) provide the authoritative answer.
+
+  Always include CONTRACT_ID and SUPPLIER (counterparty_name) in tabular
+  results so users can drill into specific deals.

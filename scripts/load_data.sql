@@ -1,0 +1,122 @@
+-- ============================================================================
+-- SCE EPM — Load synthetic parquet data from RAW.DATA_STAGE into ATOMIC
+-- ============================================================================
+
+USE DATABASE SCE_EPM_DB;
+
+-- ----------------------------------------------------------------------------
+-- COUNTERPARTY
+-- ----------------------------------------------------------------------------
+TRUNCATE TABLE ATOMIC.COUNTERPARTY;
+INSERT INTO ATOMIC.COUNTERPARTY (COUNTERPARTY_ID, COUNTERPARTY_NAME, COUNTERPARTY_TYPE, HQ_STATE)
+SELECT
+    $1:COUNTERPARTY_ID::VARCHAR,
+    $1:COUNTERPARTY_NAME::VARCHAR,
+    $1:COUNTERPARTY_TYPE::VARCHAR,
+    $1:HQ_STATE::VARCHAR
+FROM @RAW.DATA_STAGE/counterparty.parquet (FILE_FORMAT => 'RAW.PARQUET_FORMAT');
+
+-- ----------------------------------------------------------------------------
+-- CONTRACT
+-- ----------------------------------------------------------------------------
+TRUNCATE TABLE ATOMIC.CONTRACT;
+INSERT INTO ATOMIC.CONTRACT (
+    CONTRACT_ID, CONTRACT_NAME, COUNTERPARTY_ID, CONTRACT_TYPE, RESOURCE_TYPE,
+    CAPACITY_MW, EXECUTION_DATE, TERM_START_DATE, TERM_END_DATE, STATUS,
+    CURTAILMENT_FLAG, CURTAILMENT_TYPE, CURTAILMENT_CAP_HRS,
+    PAYMENT_METER, ISO_METER_FLAG, EANEP_FACTOR, DEGRADATION_FACTOR,
+    DELIVERY_POINT, POI_SUBSTATION, BASE_PRICE_USD_MWH
+)
+SELECT
+    $1:CONTRACT_ID::VARCHAR,
+    $1:CONTRACT_NAME::VARCHAR,
+    $1:COUNTERPARTY_ID::VARCHAR,
+    $1:CONTRACT_TYPE::VARCHAR,
+    $1:RESOURCE_TYPE::VARCHAR,
+    $1:CAPACITY_MW::FLOAT,
+    $1:EXECUTION_DATE::DATE,
+    $1:TERM_START_DATE::DATE,
+    $1:TERM_END_DATE::DATE,
+    $1:STATUS::VARCHAR,
+    $1:CURTAILMENT_FLAG::BOOLEAN,
+    $1:CURTAILMENT_TYPE::VARCHAR,
+    $1:CURTAILMENT_CAP_HRS::NUMBER,
+    $1:PAYMENT_METER::VARCHAR,
+    $1:ISO_METER_FLAG::BOOLEAN,
+    $1:EANEP_FACTOR::FLOAT,
+    $1:DEGRADATION_FACTOR::FLOAT,
+    $1:DELIVERY_POINT::VARCHAR,
+    $1:POI_SUBSTATION::VARCHAR,
+    $1:BASE_PRICE_USD_MWH::FLOAT
+FROM @RAW.DATA_STAGE/contract.parquet (FILE_FORMAT => 'RAW.PARQUET_FORMAT');
+
+-- ----------------------------------------------------------------------------
+-- AMENDMENT  (CHANGE_CATEGORIES is a JSON-encoded array string in the parquet)
+-- ----------------------------------------------------------------------------
+TRUNCATE TABLE ATOMIC.AMENDMENT;
+INSERT INTO ATOMIC.AMENDMENT (
+    AMENDMENT_ID, CONTRACT_ID, AMENDMENT_NUMBER, EXECUTION_DATE,
+    COUNTERPARTY_NAME, DOC_TYPE, FILE_NAME, STAGE_PATH, PAGE_COUNT,
+    SUMMARY, CHANGE_CATEGORIES
+)
+SELECT
+    $1:AMENDMENT_ID::VARCHAR,
+    $1:CONTRACT_ID::VARCHAR,
+    $1:AMENDMENT_NUMBER::INT,
+    $1:EXECUTION_DATE::DATE,
+    $1:COUNTERPARTY_NAME::VARCHAR,
+    $1:DOC_TYPE::VARCHAR,
+    $1:FILE_NAME::VARCHAR,
+    $1:STAGE_PATH::VARCHAR,
+    $1:PAGE_COUNT::INT,
+    $1:SUMMARY::VARCHAR,
+    PARSE_JSON($1:CHANGE_CATEGORIES::VARCHAR)
+FROM @RAW.DATA_STAGE/amendment.parquet (FILE_FORMAT => 'RAW.PARQUET_FORMAT');
+
+-- ----------------------------------------------------------------------------
+-- METERING_CONFIG
+-- ----------------------------------------------------------------------------
+TRUNCATE TABLE ATOMIC.METERING_CONFIG;
+INSERT INTO ATOMIC.METERING_CONFIG (
+    CONTRACT_ID, PAYMENT_METER, SETTLEMENT_METER_ID, ISO_METER_FLAG,
+    ISO_METER_ID, SCE_METER_ID, METERING_NOTES, MISMATCH_FLAG
+)
+SELECT
+    $1:CONTRACT_ID::VARCHAR,
+    $1:PAYMENT_METER::VARCHAR,
+    $1:SETTLEMENT_METER_ID::VARCHAR,
+    $1:ISO_METER_FLAG::BOOLEAN,
+    $1:ISO_METER_ID::VARCHAR,
+    $1:SCE_METER_ID::VARCHAR,
+    $1:METERING_NOTES::VARCHAR,
+    $1:MISMATCH_FLAG::BOOLEAN
+FROM @RAW.DATA_STAGE/metering_config.parquet (FILE_FORMAT => 'RAW.PARQUET_FORMAT');
+
+-- ----------------------------------------------------------------------------
+-- CONTRACT_DOCUMENT_CHUNK
+-- ----------------------------------------------------------------------------
+TRUNCATE TABLE ATOMIC.CONTRACT_DOCUMENT_CHUNK;
+INSERT INTO ATOMIC.CONTRACT_DOCUMENT_CHUNK (
+    CHUNK_ID, CONTRACT_ID, AMENDMENT_ID, DOC_TYPE, SECTION_TITLE,
+    CLAUSE_TYPE, PAGE_NUMBER, CONTENT, SOURCE_FILE
+)
+SELECT
+    $1:CHUNK_ID::VARCHAR,
+    $1:CONTRACT_ID::VARCHAR,
+    $1:AMENDMENT_ID::VARCHAR,
+    $1:DOC_TYPE::VARCHAR,
+    $1:SECTION_TITLE::VARCHAR,
+    $1:CLAUSE_TYPE::VARCHAR,
+    $1:PAGE_NUMBER::INT,
+    $1:CONTENT::VARCHAR,
+    $1:SOURCE_FILE::VARCHAR
+FROM @RAW.DATA_STAGE/contract_document_chunk.parquet (FILE_FORMAT => 'RAW.PARQUET_FORMAT');
+
+-- ----------------------------------------------------------------------------
+-- Row counts (sanity)
+-- ----------------------------------------------------------------------------
+SELECT 'COUNTERPARTY' AS TBL, COUNT(*) AS ROW_COUNT FROM ATOMIC.COUNTERPARTY
+UNION ALL SELECT 'CONTRACT',                COUNT(*) FROM ATOMIC.CONTRACT
+UNION ALL SELECT 'AMENDMENT',               COUNT(*) FROM ATOMIC.AMENDMENT
+UNION ALL SELECT 'METERING_CONFIG',         COUNT(*) FROM ATOMIC.METERING_CONFIG
+UNION ALL SELECT 'CONTRACT_DOCUMENT_CHUNK', COUNT(*) FROM ATOMIC.CONTRACT_DOCUMENT_CHUNK;

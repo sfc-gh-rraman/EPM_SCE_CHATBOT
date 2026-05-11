@@ -1,0 +1,455 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base styles */
+:root {
+  --atlas-blue: #58a6ff;
+  --atlas-green: #3fb950;
+  --atlas-yellow: #d29922;
+  --atlas-red: #f85149;
+  --atlas-purple: #a371f7;
+  --atlas-cyan: #39c5cf;
+}
+
+html, body, #root {
+  @apply h-full;
+}
+
+body {
+  @apply bg-navy-950 text-slate-100 antialiased;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  @apply w-2 h-2;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-navy-900;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-navy-600 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-navy-500;
+}
+
+/* Animated grid background */
+.animated-grid-bg {
+  position: relative;
+  overflow: hidden;
+}
+
+.animated-grid-bg::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: 
+    linear-gradient(rgba(88, 166, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(88, 166, 255, 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+  animation: gridFlow 20s linear infinite;
+}
+
+/* Scan line effect */
+.scan-line::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--atlas-cyan), transparent);
+  animation: scanLine 4s linear infinite;
+  opacity: 0.3;
+}
+
+/* Glow effects */
+.glow-blue {
+  box-shadow: 0 0 10px rgba(88, 166, 255, 0.3), 0 0 20px rgba(88, 166, 255, 0.1);
+}
+
+.glow-green {
+  box-shadow: 0 0 10px rgba(63, 185, 80, 0.3), 0 0 20px rgba(63, 185, 80, 0.1);
+}
+
+.glow-yellow {
+  box-shadow: 0 0 10px rgba(210, 153, 34, 0.3), 0 0 20px rgba(210, 153, 34, 0.1);
+}
+
+.glow-red {
+  box-shadow: 0 0 10px rgba(248, 81, 73, 0.3), 0 0 20px rgba(248, 81, 73, 0.1);
+}
+
+.glow-purple {
+  box-shadow: 0 0 10px rgba(163, 113, 247, 0.3), 0 0 20px rgba(163, 113, 247, 0.1);
+}
+
+/* Card styles */
+@layer components {
+  .card {
+    @apply bg-navy-800/80 border border-navy-600/50 rounded-lg backdrop-blur-sm;
+  }
+
+  .card-hover {
+    @apply card hover:border-atlas-blue/30 hover:bg-navy-700/80 transition-all duration-300;
+  }
+
+  .card-glow {
+    @apply card;
+    box-shadow: 
+      0 0 0 1px rgba(88, 166, 255, 0.1),
+      0 4px 20px rgba(0, 0, 0, 0.3);
+  }
+
+  /* Button styles */
+  .btn {
+    @apply px-4 py-2 rounded-md font-medium transition-all duration-200 flex items-center gap-2;
+  }
+
+  .btn-primary {
+    @apply btn bg-atlas-blue hover:bg-atlas-blue/80 text-navy-950;
+  }
+
+  .btn-secondary {
+    @apply btn bg-navy-700 hover:bg-navy-600 text-slate-100 border border-navy-600;
+  }
+
+  .btn-ghost {
+    @apply btn bg-transparent hover:bg-navy-700/50 text-slate-300;
+  }
+
+  .btn-danger {
+    @apply btn bg-atlas-red/20 hover:bg-atlas-red/30 text-atlas-red border border-atlas-red/30;
+  }
+
+  /* Input styles */
+  .input {
+    @apply w-full px-4 py-2 bg-navy-800 border border-navy-600 rounded-md text-slate-100 
+           placeholder-slate-500 focus:outline-none focus:border-atlas-blue focus:ring-1 
+           focus:ring-atlas-blue/50 transition-all duration-200;
+  }
+
+  /* Badge styles */
+  .badge {
+    @apply inline-flex items-center px-2 py-1 rounded-full text-xs font-medium;
+  }
+
+  .badge-blue {
+    @apply badge bg-atlas-blue/20 text-atlas-blue;
+  }
+
+  .badge-green {
+    @apply badge bg-atlas-green/20 text-atlas-green;
+  }
+
+  .badge-yellow {
+    @apply badge bg-atlas-yellow/20 text-atlas-yellow;
+  }
+
+  .badge-red {
+    @apply badge bg-atlas-red/20 text-atlas-red;
+  }
+
+  .badge-purple {
+    @apply badge bg-atlas-purple/20 text-atlas-purple;
+  }
+
+  /* Risk level badges */
+  .risk-critical {
+    @apply bg-atlas-red/20 text-atlas-red border border-atlas-red/30;
+  }
+
+  .risk-high {
+    @apply bg-atlas-yellow/20 text-atlas-yellow border border-atlas-yellow/30;
+  }
+
+  .risk-medium {
+    @apply bg-atlas-blue/20 text-atlas-blue border border-atlas-blue/30;
+  }
+
+  .risk-low {
+    @apply bg-atlas-green/20 text-atlas-green border border-atlas-green/30;
+  }
+}
+
+/* Metric gauge */
+.metric-gauge {
+  position: relative;
+  width: 120px;
+  height: 120px;
+}
+
+.metric-gauge-circle {
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+}
+
+.metric-gauge-bg {
+  fill: none;
+  stroke: rgba(88, 166, 255, 0.1);
+  stroke-width: 8;
+}
+
+.metric-gauge-fill {
+  fill: none;
+  stroke-width: 8;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.5s ease-out;
+}
+
+/* Pulse animation for alerts */
+@keyframes pulse-ring {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+.pulse-ring {
+  animation: pulse-ring 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Chat message animations */
+.chat-message {
+  animation: slideUp 0.3s ease-out;
+}
+
+/* Typing indicator */
+.typing-indicator {
+  display: flex;
+  gap: 4px;
+}
+
+.typing-indicator span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--atlas-blue);
+  animation: typing-bounce 1.4s infinite ease-in-out;
+}
+
+.typing-indicator span:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.typing-indicator span:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+@keyframes typing-bounce {
+  0%, 80%, 100% {
+    transform: scale(0);
+    opacity: 0.5;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Map marker styles */
+.map-marker {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.map-marker:hover {
+  transform: translate(-50%, -50%) scale(1.2);
+  z-index: 10;
+}
+
+.map-marker-critical {
+  background: var(--atlas-red);
+  box-shadow: 0 0 10px var(--atlas-red), 0 0 20px rgba(248, 81, 73, 0.3);
+}
+
+.map-marker-high {
+  background: var(--atlas-yellow);
+  box-shadow: 0 0 10px var(--atlas-yellow);
+}
+
+.map-marker-medium {
+  background: var(--atlas-blue);
+}
+
+.map-marker-low {
+  background: var(--atlas-green);
+}
+
+/* Table styles */
+.table-atlas {
+  @apply w-full;
+}
+
+.table-atlas th {
+  @apply px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider 
+         bg-navy-800 border-b border-navy-600;
+}
+
+.table-atlas td {
+  @apply px-4 py-3 text-sm border-b border-navy-700/50;
+}
+
+.table-atlas tr:hover td {
+  @apply bg-navy-700/30;
+}
+
+/* Markdown styles for chat */
+.markdown-content h2 {
+  @apply text-lg font-semibold text-atlas-blue mb-3 mt-4 first:mt-0;
+}
+
+.markdown-content h3 {
+  @apply text-base font-medium text-slate-200 mb-2 mt-3;
+}
+
+.markdown-content p {
+  @apply mb-3 text-slate-300;
+}
+
+.markdown-content ul {
+  @apply list-disc list-inside mb-3 space-y-1;
+}
+
+.markdown-content li {
+  @apply text-slate-300;
+}
+
+.markdown-content table {
+  @apply w-full mb-4 text-sm;
+}
+
+.markdown-content th {
+  @apply px-3 py-2 text-left bg-navy-700 text-slate-300 font-medium;
+}
+
+.markdown-content td {
+  @apply px-3 py-2 border-b border-navy-600/50;
+}
+
+.markdown-content strong {
+  @apply text-atlas-blue font-semibold;
+}
+
+.markdown-content code {
+  @apply bg-navy-700 px-1.5 py-0.5 rounded text-atlas-cyan text-sm;
+}
+
+.markdown-content hr {
+  @apply my-4 border-navy-600;
+}
+
+/* Chart tooltip */
+.recharts-tooltip-wrapper {
+  outline: none !important;
+}
+
+.custom-tooltip {
+  @apply bg-navy-800 border border-navy-600 rounded-lg p-3 shadow-xl;
+}
+
+/* Loading skeleton */
+.skeleton {
+  @apply bg-navy-700 rounded animate-pulse;
+}
+
+/* Alert banner */
+.alert-banner {
+  @apply px-4 py-3 rounded-lg flex items-center gap-3;
+}
+
+.alert-banner-critical {
+  @apply alert-banner bg-atlas-red/10 border border-atlas-red/30;
+}
+
+.alert-banner-warning {
+  @apply alert-banner bg-atlas-yellow/10 border border-atlas-yellow/30;
+}
+
+.alert-banner-info {
+  @apply alert-banner bg-atlas-blue/10 border border-atlas-blue/30;
+}
+
+.alert-banner-success {
+  @apply alert-banner bg-atlas-green/10 border border-atlas-green/30;
+}
+
+/* ===== ATLAS Custom Leaflet Popup Styles ===== */
+.atlas-popup .leaflet-popup-content-wrapper {
+  background: transparent !important;
+  border-radius: 0.5rem;
+  padding: 0;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(88, 166, 255, 0.2);
+}
+
+.atlas-popup .leaflet-popup-content {
+  margin: 0 !important;
+  width: auto !important;
+}
+
+.atlas-popup .leaflet-popup-tip-container {
+  display: none;
+}
+
+.atlas-popup .leaflet-popup-close-button {
+  color: #64748b !important;
+  top: 8px !important;
+  right: 8px !important;
+  width: 24px !important;
+  height: 24px !important;
+  font-size: 18px !important;
+  font-weight: 400 !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 4px !important;
+  background: rgba(30, 41, 59, 0.5) !important;
+  z-index: 10 !important;
+}
+
+.atlas-popup .leaflet-popup-close-button:hover {
+  color: #f8fafc !important;
+  background: rgba(30, 41, 59, 0.8) !important;
+}
+
+/* Popup entrance animation */
+.atlas-popup {
+  animation: popupFadeIn 0.2s ease-out;
+}
+
+@keyframes popupFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Status dot pulse animation */
+@keyframes statusPulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.atlas-popup .animate-pulse {
+  animation: statusPulse 2s ease-in-out infinite;
+}

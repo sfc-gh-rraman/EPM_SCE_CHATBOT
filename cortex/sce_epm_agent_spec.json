@@ -1,0 +1,158 @@
+{
+  "models": { "orchestration": "auto" },
+  "orchestration": {
+    "budget": { "seconds": 600, "tokens": 300000 }
+  },
+  "instructions": {
+    "orchestration": "You are the SCE EPM Contract Assistant for Southern California Edison's Energy Portfolio Management team.\n\nYou help portfolio managers, contract analysts, and engineers answer questions about Power Purchase Agreements (PPAs), Resource Adequacy (RA) contracts, tolling agreements, and their amendments.\n\nROUTING RULES:\n- Counts, capacity thresholds, dates, status filters, supplier filters, curtailment flags, metering flags, EANEP / degradation values  ➜  use contract_data (Cortex Analyst).\n- Free-text questions about clause language, e.g. 'what does the contract say about ...', 'how is X handled', 'find the curtailment notice clause'  ➜  use contract_clause_search (Cortex Search), and pre-filter by CONTRACT_ID and/or CLAUSE_TYPE when possible.\n- 'List the amendments for contract X' or 'find amendments about X'  ➜  use amendment_file_search.\n- Need to deconstruct a single PDF filename into structured fields  ➜  use parse_amendment_filename.\n- 'Tell me everything about contract X' or any 360-degree dossier  ➜  use get_contract_360.\n- 'How do contracts handle product deficiency / RA delivery failure / EANEP' (Q5 — concept extraction grouped by approach)  ➜  use compare_clause_across_contracts with the appropriate CLAUSE_TYPE (RA_REMEDY, DELIVERY_FAILURE, METERING, EANEP, DEGRADATION, etc.).\n\nFor hybrid questions: first run a structured query to identify the candidate contract set, then call contract_clause_search restricted to those CONTRACT_IDs.\n\nCITE EVERYTHING: every answer must surface CONTRACT_ID, AMENDMENT_ID (when applicable), SECTION_TITLE / page number, and SOURCE_FILE.\nIf the answer is not present in retrieved data, say 'I don't have that information in the contract corpus.' rather than guessing.",
+    "response": "Keep responses concise and well-structured.\n- Use markdown tables for lists of contracts (CONTRACT_ID, SUPPLIER, CAPACITY_MW, STATUS + question-specific columns).\n- For amendment questions, show amendment_number, execution_date, doc_type, and a short summary, ordered by amendment_number.\n- For Q5 concept extraction, GROUP the response by distinct approach / category and list contracts under each, with citations.\n- Format MW values as '12.5 MW', dates as YYYY-MM-DD, $/MWh as '$48.20/MWh'."
+  },
+  "tools": [
+    {
+      "tool_spec": {
+        "type": "cortex_analyst_text_to_sql",
+        "name": "contract_data",
+        "description": "Query structured contract metadata: contracts, counterparties, amendments, metering configuration. Use for counts, capacity thresholds, dates, status filters, curtailment flags, metering flags, EANEP / degradation factors."
+      }
+    },
+    {
+      "tool_spec": {
+        "type": "cortex_search",
+        "name": "contract_clause_search",
+        "description": "Clause-level semantic search across base contracts and amendments. Filter by CONTRACT_ID, AMENDMENT_ID, and CLAUSE_TYPE (CURTAILMENT, DELIVERY_FAILURE, RA_REMEDY, METERING, EANEP, DEGRADATION, PRICING, TERM, TERMINATION, GENERAL). Use for any free-text 'what does the contract say about...' question."
+      }
+    },
+    {
+      "tool_spec": {
+        "type": "cortex_search",
+        "name": "amendment_file_search",
+        "description": "Search amendment filenames and one-paragraph summaries. Filter by CONTRACT_ID. Use to enumerate amendments for a given contract or to find amendments by topic."
+      }
+    },
+    {
+      "tool_spec": {
+        "type": "generic",
+        "name": "parse_amendment_filename",
+        "description": "Parse an amendment PDF filename of the form {CONTRACT_ID}_{YYYY-MM-DD}_{COUNTERPARTY}_{DOC_TYPE_FREE_TEXT}.pdf into structured fields (contract_id, execution_date, counterparty_token, doc_type).",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "FILE_NAME": {
+              "type": "string",
+              "description": "The original PDF filename (with or without .pdf extension)."
+            }
+          },
+          "required": ["FILE_NAME"]
+        }
+      }
+    },
+    {
+      "tool_spec": {
+        "type": "generic",
+        "name": "get_contract_360",
+        "description": "Return a 360-degree dossier for a single contract: master row, supplier, all amendments, metering configuration, and clause-type chunk counts. Use when the user asks for 'everything about contract X'.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "CONTRACT_ID": {
+              "type": "string",
+              "description": "Contract identifier, e.g. CTR-001"
+            }
+          },
+          "required": ["CONTRACT_ID"]
+        }
+      }
+    },
+    {
+      "tool_spec": {
+        "type": "generic",
+        "name": "compare_clause_across_contracts",
+        "description": "Concept extraction across the portfolio. Returns representative clause excerpts for a given CLAUSE_TYPE so the agent can group distinct legal approaches. Use for Q5-style questions like 'how do contracts handle product deficiency?' or 'remedies for failure to deliver RA capacity'. If a CONCEPT is provided it routes through Cortex Search filtered by CLAUSE_TYPE; otherwise it samples one representative clause per contract.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "CLAUSE_TYPE": {
+              "type": "string",
+              "description": "One of: CURTAILMENT, DELIVERY_FAILURE, RA_REMEDY, METERING, EANEP, DEGRADATION, PRICING, TERM, TERMINATION, GENERAL"
+            },
+            "CONCEPT": {
+              "type": "string",
+              "description": "Optional natural-language phrase describing the concept of interest (used as the search query)."
+            },
+            "MAX_RESULTS": {
+              "type": "number",
+              "description": "Maximum results to return (default 12)."
+            }
+          },
+          "required": ["CLAUSE_TYPE"]
+        }
+      }
+    },
+    {
+      "tool_spec": {
+        "type": "data_to_chart",
+        "name": "data_to_chart",
+        "description": "Generate a Vega-Lite chart spec from a tabular result returned by contract_data. Use whenever the user asks for a chart, bar plot, distribution, or visualization."
+      }
+    }
+  ],
+  "tool_resources": {
+    "contract_data": {
+      "execution_environment": {
+        "type": "warehouse",
+        "warehouse": "SCE_EPM_WH",
+        "query_timeout": 60
+      },
+      "semantic_model_file": "@SCE_EPM_DB.CORTEX.SEMANTIC_MODELS/sce_epm_semantic_model.yaml"
+    },
+    "contract_clause_search": {
+      "execution_environment": {
+        "type": "warehouse",
+        "warehouse": "SCE_EPM_WH",
+        "query_timeout": 60
+      },
+      "search_service": "SCE_EPM_DB.DOCS.CONTRACT_CLAUSE_SEARCH",
+      "max_results": 8,
+      "id_column": "CHUNK_ID",
+      "title_column": "SECTION_TITLE"
+    },
+    "amendment_file_search": {
+      "execution_environment": {
+        "type": "warehouse",
+        "warehouse": "SCE_EPM_WH",
+        "query_timeout": 60
+      },
+      "search_service": "SCE_EPM_DB.DOCS.AMENDMENT_FILE_SEARCH",
+      "max_results": 10,
+      "id_column": "AMENDMENT_ID",
+      "title_column": "FILE_NAME"
+    },
+    "parse_amendment_filename": {
+      "type": "function",
+      "identifier": "SCE_EPM_DB.CORTEX.PARSE_AMENDMENT_FILENAME(VARCHAR)",
+      "execution_environment": {
+        "type": "warehouse",
+        "warehouse": "SCE_EPM_WH",
+        "query_timeout": 30
+      }
+    },
+    "get_contract_360": {
+      "type": "procedure",
+      "identifier": "SCE_EPM_DB.CORTEX.GET_CONTRACT_360(VARCHAR)",
+      "execution_environment": {
+        "type": "warehouse",
+        "warehouse": "SCE_EPM_WH",
+        "query_timeout": 60
+      }
+    },
+    "compare_clause_across_contracts": {
+      "type": "procedure",
+      "identifier": "SCE_EPM_DB.CORTEX.COMPARE_CLAUSE_ACROSS_CONTRACTS(VARCHAR, VARCHAR, NUMBER)",
+      "execution_environment": {
+        "type": "warehouse",
+        "warehouse": "SCE_EPM_WH",
+        "query_timeout": 120
+      }
+    }
+  }
+}
