@@ -4,4 +4,8 @@ __pycache__/
 *.pyc
 .env
 data/synthetic/*.parquet
+data/sce_real/pdfs/
+data/sce_real/pdfs_consolidated/
+data/sce_real/zip_extract/
+data/sce_real/*.zip
 .DS_Store
