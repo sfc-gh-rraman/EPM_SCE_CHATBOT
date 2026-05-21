@@ -56,12 +56,20 @@ export function Landing({ onNavigate }: LandingProps) {
           instead of digging through SharePoint.
         </p>
 
-        <button
-          onClick={() => onNavigate('chat')}
-          className="inline-flex items-center gap-2 px-8 py-4 bg-amber-400 hover:bg-amber-300 text-slate-900 font-semibold rounded-lg transition-all shadow-lg shadow-amber-500/30"
-        >
-          Open Chat <ArrowRight className="w-5 h-5" />
-        </button>
+        <div className="flex gap-4">
+          <button
+            onClick={() => onNavigate('dashboard')}
+            className="inline-flex items-center gap-2 px-8 py-4 bg-amber-400 hover:bg-amber-300 text-slate-900 font-semibold rounded-lg transition-all shadow-lg shadow-amber-500/30"
+          >
+            Open Dashboard <ArrowRight className="w-5 h-5" />
+          </button>
+          <button
+            onClick={() => onNavigate('chat')}
+            className="inline-flex items-center gap-2 px-8 py-4 bg-white/10 hover:bg-white/20 text-white font-semibold rounded-lg transition-all border border-white/20"
+          >
+            Contract Chat <ArrowRight className="w-5 h-5" />
+          </button>
+        </div>
 
         <div className="grid md:grid-cols-3 gap-6 mt-20">
           {FEATURES.map((f) => {

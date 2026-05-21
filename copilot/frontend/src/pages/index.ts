@@ -1,2 +1,8 @@
 export { Landing } from './Landing'
 export { ContractChat } from './ContractChat'
+export { PortfolioDashboard } from './PortfolioDashboard'
+export { DailyBrief } from './DailyBrief'
+export { ContractDeepDive } from './ContractDeepDive'
+export { ClauseAnalytics } from './ClauseAnalytics'
+export { ContractSearch } from './ContractSearch'
+export { ResourceMap } from './ResourceMap'

@@ -36,7 +36,7 @@ class SnowflakeServiceSPCS:
     Includes auto-reconnection on token expiration.
     """
     
-    def __init__(self, connection_name: str = "demo"):
+    def __init__(self, connection_name: str = "my_snowflake"):
         self.connection_name = connection_name
         self.database = os.environ.get("SNOWFLAKE_DATABASE", "SCE_EPM_DB")
         self.schema = os.environ.get("SNOWFLAKE_SCHEMA", "ATOMIC")

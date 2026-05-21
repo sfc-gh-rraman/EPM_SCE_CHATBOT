@@ -237,11 +237,205 @@ async def portfolio_summary():
     sf = get_sf()
     sql = """
         SELECT
-            COUNT(*)                          AS contract_count,
-            SUM(CASE WHEN STATUS='ACTIVE' THEN 1 ELSE 0 END) AS active_contracts,
-            ROUND(SUM(CAPACITY_MW), 1)        AS total_capacity_mw,
-            COUNT(DISTINCT SUPPLIER)          AS supplier_count
-        FROM SCE_EPM_DB.CONTRACTS.CONTRACT_SUMMARY_V
+            COUNT(*)                                              AS contract_count,
+            COUNT(DISTINCT COUNTERPARTY_ID)                       AS counterparty_count,
+            COUNT(DISTINCT CASE WHEN a.AMENDMENT_ID IS NOT NULL THEN a.CONTRACT_ID END) AS contracts_with_amendments,
+            (SELECT COUNT(*) FROM SCE_EPM_DB.ATOMIC.AMENDMENT)   AS total_amendments,
+            (SELECT COUNT(*) FROM SCE_EPM_DB.ATOMIC.CONTRACT_DOCUMENT_CHUNK) AS total_chunks
+        FROM SCE_EPM_DB.ATOMIC.CONTRACT c
+        LEFT JOIN SCE_EPM_DB.ATOMIC.AMENDMENT a ON a.CONTRACT_ID = c.CONTRACT_ID
     """
     rows = sf.execute_query(sql)
-    return rows[0] if rows else {}
+    base = rows[0] if rows else {}
+
+    clause_sql = """
+        SELECT CLAUSE_TYPE, COUNT(*) AS cnt
+        FROM SCE_EPM_DB.ATOMIC.CONTRACT_DOCUMENT_CHUNK
+        GROUP BY CLAUSE_TYPE ORDER BY cnt DESC
+    """
+    base["clause_distribution"] = sf.execute_query(clause_sql)
+
+    top_counterparties_sql = """
+        SELECT cp.COUNTERPARTY_NAME, COUNT(c.CONTRACT_ID) AS contracts
+        FROM SCE_EPM_DB.ATOMIC.CONTRACT c
+        JOIN SCE_EPM_DB.ATOMIC.COUNTERPARTY cp USING (COUNTERPARTY_ID)
+        GROUP BY cp.COUNTERPARTY_NAME ORDER BY contracts DESC LIMIT 10
+    """
+    base["top_counterparties"] = sf.execute_query(top_counterparties_sql)
+
+    amendment_velocity_sql = """
+        SELECT DATE_TRUNC('month', EXECUTION_DATE) AS month, COUNT(*) AS cnt
+        FROM SCE_EPM_DB.ATOMIC.AMENDMENT
+        WHERE EXECUTION_DATE IS NOT NULL
+        GROUP BY month ORDER BY month
+    """
+    base["amendment_velocity"] = sf.execute_query(amendment_velocity_sql)
+
+    return base
+
+
+@app.get("/api/contracts/all")
+async def all_contracts():
+    sf = get_sf()
+    sql = """
+        SELECT c.CONTRACT_ID, c.CONTRACT_NAME, cp.COUNTERPARTY_NAME AS SUPPLIER,
+               c.CONTRACT_TYPE, c.RESOURCE_TYPE, c.CAPACITY_MW,
+               c.EXECUTION_DATE, c.TERM_START_DATE, c.TERM_END_DATE, c.STATUS,
+               (SELECT COUNT(*) FROM SCE_EPM_DB.ATOMIC.AMENDMENT a WHERE a.CONTRACT_ID = c.CONTRACT_ID) AS amendment_count,
+               (SELECT COUNT(*) FROM SCE_EPM_DB.ATOMIC.CONTRACT_DOCUMENT_CHUNK ck WHERE ck.CONTRACT_ID = c.CONTRACT_ID) AS chunk_count
+        FROM SCE_EPM_DB.ATOMIC.CONTRACT c
+        LEFT JOIN SCE_EPM_DB.ATOMIC.COUNTERPARTY cp USING (COUNTERPARTY_ID)
+        ORDER BY c.CONTRACT_NAME
+    """
+    return {"rows": sf.execute_query(sql)}
+
+
+@app.get("/api/contracts/{contract_id}/deep-dive")
+async def contract_deep_dive(contract_id: str):
+    sf = get_sf()
+    contract_sql = f"""
+        SELECT c.*, cp.COUNTERPARTY_NAME AS SUPPLIER
+        FROM SCE_EPM_DB.ATOMIC.CONTRACT c
+        LEFT JOIN SCE_EPM_DB.ATOMIC.COUNTERPARTY cp USING (COUNTERPARTY_ID)
+        WHERE c.CONTRACT_ID = '{contract_id}'
+    """
+    contract_rows = sf.execute_query(contract_sql)
+    contract = contract_rows[0] if contract_rows else {}
+
+    amendments_sql = f"""
+        SELECT AMENDMENT_ID, AMENDMENT_NUMBER, EXECUTION_DATE, DOC_TYPE, FILE_NAME
+        FROM SCE_EPM_DB.ATOMIC.AMENDMENT
+        WHERE CONTRACT_ID = '{contract_id}'
+        ORDER BY AMENDMENT_NUMBER
+    """
+    amendments = sf.execute_query(amendments_sql)
+
+    clause_dist_sql = f"""
+        SELECT CLAUSE_TYPE, COUNT(*) AS cnt
+        FROM SCE_EPM_DB.ATOMIC.CONTRACT_DOCUMENT_CHUNK
+        WHERE CONTRACT_ID = '{contract_id}'
+        GROUP BY CLAUSE_TYPE ORDER BY cnt DESC
+    """
+    clause_dist = sf.execute_query(clause_dist_sql)
+
+    return {"contract": contract, "amendments": amendments, "clause_distribution": clause_dist}
+
+
+@app.get("/api/clauses/analytics")
+async def clause_analytics():
+    sf = get_sf()
+    distribution_sql = """
+        SELECT CLAUSE_TYPE, COUNT(*) AS chunk_count,
+               COUNT(DISTINCT CONTRACT_ID) AS contract_count
+        FROM SCE_EPM_DB.ATOMIC.CONTRACT_DOCUMENT_CHUNK
+        GROUP BY CLAUSE_TYPE ORDER BY chunk_count DESC
+    """
+    distribution = sf.execute_query(distribution_sql)
+
+    top_curtailment_sql = """
+        SELECT ck.CONTRACT_ID, c.CONTRACT_NAME, cp.COUNTERPARTY_NAME, COUNT(*) AS curtailment_chunks
+        FROM SCE_EPM_DB.ATOMIC.CONTRACT_DOCUMENT_CHUNK ck
+        JOIN SCE_EPM_DB.ATOMIC.CONTRACT c ON c.CONTRACT_ID = ck.CONTRACT_ID
+        LEFT JOIN SCE_EPM_DB.ATOMIC.COUNTERPARTY cp ON cp.COUNTERPARTY_ID = c.COUNTERPARTY_ID
+        WHERE ck.CLAUSE_TYPE = 'CURTAILMENT'
+        GROUP BY ck.CONTRACT_ID, c.CONTRACT_NAME, cp.COUNTERPARTY_NAME
+        ORDER BY curtailment_chunks DESC LIMIT 15
+    """
+    top_curtailment = sf.execute_query(top_curtailment_sql)
+
+    doc_type_sql = """
+        SELECT DOC_TYPE, COUNT(*) AS chunks, COUNT(DISTINCT CONTRACT_ID) AS contracts
+        FROM SCE_EPM_DB.ATOMIC.CONTRACT_DOCUMENT_CHUNK
+        GROUP BY DOC_TYPE ORDER BY chunks DESC
+    """
+    by_doc_type = sf.execute_query(doc_type_sql)
+
+    return {"distribution": distribution, "top_curtailment": top_curtailment, "by_doc_type": by_doc_type}
+
+
+@app.post("/api/contracts/search")
+async def search_contracts(body: Dict[str, Any]):
+    sf = get_sf()
+    query = body.get("query", "")
+    limit = body.get("limit", 20)
+    clause_type = body.get("clause_type")
+
+    keywords = [w.strip().lower() for w in query.split() if len(w.strip()) > 2]
+    if not keywords:
+        return {"results": []}
+
+    like_conds = " OR ".join([f"LOWER(ck.CONTENT) LIKE '%{kw}%'" for kw in keywords[:5]])
+    clause_filter = f"AND ck.CLAUSE_TYPE = '{clause_type}'" if clause_type else ""
+
+    sql = f"""
+        SELECT ck.CHUNK_ID, ck.CONTRACT_ID, c.CONTRACT_NAME, cp.COUNTERPARTY_NAME,
+               ck.CLAUSE_TYPE, ck.DOC_TYPE, SUBSTR(ck.CONTENT, 1, 400) AS snippet
+        FROM SCE_EPM_DB.ATOMIC.CONTRACT_DOCUMENT_CHUNK ck
+        JOIN SCE_EPM_DB.ATOMIC.CONTRACT c ON c.CONTRACT_ID = ck.CONTRACT_ID
+        LEFT JOIN SCE_EPM_DB.ATOMIC.COUNTERPARTY cp ON cp.COUNTERPARTY_ID = c.COUNTERPARTY_ID
+        WHERE ({like_conds}) {clause_filter}
+        LIMIT {int(limit)}
+    """
+    return {"results": sf.execute_query(sql)}
+
+
+@app.get("/api/daily-brief")
+async def daily_brief():
+    sf = get_sf()
+    stats_sql = """
+        SELECT
+            (SELECT COUNT(*) FROM SCE_EPM_DB.ATOMIC.CONTRACT) AS total_contracts,
+            (SELECT COUNT(*) FROM SCE_EPM_DB.ATOMIC.AMENDMENT) AS total_amendments,
+            (SELECT COUNT(DISTINCT COUNTERPARTY_ID) FROM SCE_EPM_DB.ATOMIC.CONTRACT) AS counterparties,
+            (SELECT COUNT(*) FROM SCE_EPM_DB.ATOMIC.CONTRACT_DOCUMENT_CHUNK WHERE CLAUSE_TYPE='CURTAILMENT') AS curtailment_clauses,
+            (SELECT COUNT(*) FROM SCE_EPM_DB.ATOMIC.CONTRACT_DOCUMENT_CHUNK WHERE CLAUSE_TYPE='DELIVERY_FAILURE') AS delivery_failure_clauses
+    """
+    stats = sf.execute_query(stats_sql)
+
+    recent_amendments_sql = """
+        SELECT a.AMENDMENT_ID, a.CONTRACT_ID, c.CONTRACT_NAME, cp.COUNTERPARTY_NAME,
+               a.DOC_TYPE, a.EXECUTION_DATE, a.FILE_NAME
+        FROM SCE_EPM_DB.ATOMIC.AMENDMENT a
+        JOIN SCE_EPM_DB.ATOMIC.CONTRACT c ON c.CONTRACT_ID = a.CONTRACT_ID
+        LEFT JOIN SCE_EPM_DB.ATOMIC.COUNTERPARTY cp ON cp.COUNTERPARTY_ID = c.COUNTERPARTY_ID
+        WHERE a.EXECUTION_DATE IS NOT NULL
+        ORDER BY a.EXECUTION_DATE DESC
+        LIMIT 10
+    """
+    recent = sf.execute_query(recent_amendments_sql)
+
+    high_amendment_sql = """
+        SELECT c.CONTRACT_ID, c.CONTRACT_NAME, cp.COUNTERPARTY_NAME, COUNT(a.AMENDMENT_ID) AS amd_count
+        FROM SCE_EPM_DB.ATOMIC.CONTRACT c
+        JOIN SCE_EPM_DB.ATOMIC.AMENDMENT a ON a.CONTRACT_ID = c.CONTRACT_ID
+        LEFT JOIN SCE_EPM_DB.ATOMIC.COUNTERPARTY cp ON cp.COUNTERPARTY_ID = c.COUNTERPARTY_ID
+        GROUP BY c.CONTRACT_ID, c.CONTRACT_NAME, cp.COUNTERPARTY_NAME
+        HAVING COUNT(a.AMENDMENT_ID) >= 5
+        ORDER BY amd_count DESC LIMIT 10
+    """
+    high_amendment = sf.execute_query(high_amendment_sql)
+
+    return {"stats": stats[0] if stats else {}, "recent_amendments": recent, "high_amendment_contracts": high_amendment}
+
+
+@app.get("/api/resource-map")
+async def resource_map():
+    sf = get_sf()
+    sql = """
+        SELECT cp.COUNTERPARTY_NAME, c.CONTRACT_TYPE, c.RESOURCE_TYPE,
+               COUNT(*) AS contract_count
+        FROM SCE_EPM_DB.ATOMIC.CONTRACT c
+        LEFT JOIN SCE_EPM_DB.ATOMIC.COUNTERPARTY cp USING (COUNTERPARTY_ID)
+        GROUP BY cp.COUNTERPARTY_NAME, c.CONTRACT_TYPE, c.RESOURCE_TYPE
+        ORDER BY contract_count DESC
+    """
+    by_counterparty = sf.execute_query(sql)
+
+    doc_type_sql = """
+        SELECT DOC_TYPE, COUNT(*) AS doc_count
+        FROM SCE_EPM_DB.ATOMIC.AMENDMENT
+        GROUP BY DOC_TYPE ORDER BY doc_count DESC
+    """
+    by_doc_type = sf.execute_query(doc_type_sql)
+
+    return {"by_counterparty": by_counterparty, "by_doc_type": by_doc_type}
