@@ -1,0 +1,11 @@
+node_modules
+.git
+data
+scripts
+__pycache__
+*.pyc
+.env
+dist
+.DS_Store
+copilot/frontend/node_modules
+copilot/frontend/dist

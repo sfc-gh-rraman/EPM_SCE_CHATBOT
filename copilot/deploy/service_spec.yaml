@@ -1,6 +1,3 @@
-# SCE EPM Contract Chatbot - SPCS Service Specification
-# This file defines the container service configuration
-
 spec:
   containers:
     - name: sce-epm
@@ -19,15 +16,7 @@ spec:
       readinessProbe:
         port: 8080
         path: /health
-      volumeMounts:
-        - name: token-vol
-          mountPath: /snowflake/session
   endpoints:
     - name: sce-epm-endpoint
       port: 8080
       public: true
-  volumes:
-    - name: token-vol
-      source: "@SCE_EPM_DB.SPCS.SCE_EPM_STAGE/token"
-      uid: 0
-      gid: 0
